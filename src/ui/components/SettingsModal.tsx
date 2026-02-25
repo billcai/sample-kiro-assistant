@@ -402,7 +402,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
                         </div>
                       );
                     })}
-                    {Object.keys(opModeDirty).length > 0 && (
+                    {Object.keys(opModeDirty ?? {}).length > 0 && (
                       <button
                         type="button"
                         onClick={handleOpModeSave}
