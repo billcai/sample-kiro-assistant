@@ -18,10 +18,16 @@
     "description": "Standard Claude Opus 4.5 model"
   },
   {
+    "id": "claude-sonnet-4.6",
+    "label": "Claude Sonnet 4.6",
+    "price": "1.3x Credit",
+    "description": "Latest Claude Sonnet release"
+  },
+  {
     "id": "claude-sonnet-4.5",
     "label": "Claude Sonnet 4.5",
     "price": "1.3x Credit",
-    "description": "Latest Claude Sonnet release"
+    "description": "Standard Claude Sonnet 4.5 release"
   },
   {
     "id": "claude-sonnet-4.5-1m",

@@ -54,7 +54,11 @@ electron.contextBridge.exposeInMainWorld("electron", {
     getModelSettings: () =>
         ipcInvoke("get-model-settings"),
     setDefaultModel: (payload: SetDefaultModelPayload) =>
-        ipcInvoke("set-default-model", payload)
+        ipcInvoke("set-default-model", payload),
+    getOpModeSettings: () =>
+        ipcInvoke("get-op-mode-settings"),
+    setOpModeSettings: (payload: SetOpModeSettingsPayload) =>
+        ipcInvoke("set-op-mode-settings", payload)
 } satisfies Window['electron'])
 
 function ipcInvoke<Key extends keyof EventPayloadMapping>(key: Key, ...args: any[]): Promise<EventPayloadMapping[Key]> {

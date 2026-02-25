@@ -16,7 +16,12 @@ import { getKiroMcpSettingsPath, loadKiroMcpServers, setKiroMcpServerDisabled, e
 import { ensureWorkspaceRoot } from "./libs/workspace.js";
 import { loadSkills } from "./libs/skill-loader.js";
 import { loadAssistantSettings, saveAssistantSettings, getAssistantSettingsPath, type AssistantSettings } from "./libs/app-settings.js";
+import { syncOpModeAgents } from "./libs/op-mode-agents.js";
 import { models as availableModels, DEFAULT_MODEL_ID } from "../shared/models.js";
+import {
+  DEFAULT_OP_ORCHESTRATOR_PROMPT, DEFAULT_OP_EXPLORE_PROMPT, DEFAULT_OP_TASK_WORKER_PROMPT,
+  DEFAULT_OP_ORCHESTRATOR_MODEL, DEFAULT_OP_EXPLORE_MODEL, DEFAULT_OP_TASK_WORKER_MODEL,
+} from "../shared/op-mode-defaults.js";
 import type { ClientEvent } from "./types.js";
 import "./libs/claude-settings.js";
 
@@ -51,6 +56,7 @@ app.on("ready", async () => {
     await ensureAgentConfigDefaults(templatePath);
     ensureWorkspaceRoot();
     assistantSettings = loadAssistantSettings();
+    await syncOpModeAgents(assistantSettings);
     const mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
@@ -155,6 +161,49 @@ app.on("ready", async () => {
             currentModelId: modelId,
             source: "custom"
         };
+    });
+
+    const buildOpModeResponse = (): OpModeSettingsResponse => ({
+        enabled: assistantSettings.opMode ?? false,
+        agents: {
+            orchestrator: { prompt: assistantSettings.opModeAgents?.orchestrator?.prompt, model: assistantSettings.opModeAgents?.orchestrator?.model },
+            explore: { prompt: assistantSettings.opModeAgents?.explore?.prompt, model: assistantSettings.opModeAgents?.explore?.model },
+            taskWorker: { prompt: assistantSettings.opModeAgents?.taskWorker?.prompt, model: assistantSettings.opModeAgents?.taskWorker?.model },
+        },
+        defaults: {
+            orchestratorPrompt: DEFAULT_OP_ORCHESTRATOR_PROMPT,
+            explorePrompt: DEFAULT_OP_EXPLORE_PROMPT,
+            taskWorkerPrompt: DEFAULT_OP_TASK_WORKER_PROMPT,
+            orchestratorModel: DEFAULT_OP_ORCHESTRATOR_MODEL,
+            exploreModel: DEFAULT_OP_EXPLORE_MODEL,
+            taskWorkerModel: DEFAULT_OP_TASK_WORKER_MODEL,
+        },
+    });
+
+    ipcMainHandle("get-op-mode-settings", () => buildOpModeResponse());
+
+    ipcMainHandle("set-op-mode-settings", async (_event: IpcMainInvokeEvent, payload: SetOpModeSettingsPayload) => {
+        try {
+            if (typeof payload?.enabled === "boolean") {
+                assistantSettings = { ...assistantSettings, opMode: payload.enabled };
+            }
+            if (payload?.agents) {
+                const prev = assistantSettings.opModeAgents ?? { orchestrator: {}, explore: {}, taskWorker: {} };
+                assistantSettings = {
+                    ...assistantSettings,
+                    opModeAgents: {
+                        orchestrator: { ...prev.orchestrator, ...payload.agents.orchestrator },
+                        explore: { ...prev.explore, ...payload.agents.explore },
+                        taskWorker: { ...prev.taskWorker, ...payload.agents.taskWorker },
+                    },
+                };
+            }
+            saveAssistantSettings(assistantSettings);
+            await syncOpModeAgents(assistantSettings);
+            return { success: true, settings: buildOpModeResponse() };
+        } catch (error: unknown) {
+            return { success: false, error: getErrorMessage(error, "Failed to update OP Mode settings") };
+        }
     });
 
     // Text file extensions that can be displayed in the app

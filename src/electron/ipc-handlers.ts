@@ -17,6 +17,7 @@ const runnerHandles = new Map<string, RunnerHandle>();
 const serverEventListeners = new Set<(event: ServerEvent) => void>();
 
 const resolveModelId = () => loadAssistantSettings().defaultModel?.trim() || DEFAULT_MODEL_ID;
+const resolveAgentId = () => loadAssistantSettings().opMode ? "op-orchestrator" : (process.env.KIRO_AGENT ?? "kiro-assistant").trim();
 
 const hydrateSessionMessages = (session: Session | undefined) => {
   if (!session?.cwd) return;
@@ -138,6 +139,7 @@ export function handleClientEvent(event: ClientEvent) {
       session,
       resumeSessionId: session.kiroConversationId,
       getModel: () => modelId,
+      getAgent: resolveAgentId,
       onEvent: emit,
       onSessionUpdate: (updates) => {
         sessions.updateSession(session.id, updates);
@@ -205,6 +207,7 @@ export function handleClientEvent(event: ClientEvent) {
       session,
       resumeSessionId: session.kiroConversationId,
       getModel: () => modelId,
+      getAgent: resolveAgentId,
       onEvent: emit,
       onSessionUpdate: (updates) => {
         sessions.updateSession(session.id, updates);

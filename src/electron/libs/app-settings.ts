@@ -2,8 +2,12 @@ import { app } from "electron";
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 
+import type { OpModeAgents } from "../../shared/op-mode-defaults.js";
+
 export type AssistantSettings = {
   defaultModel?: string;
+  opMode?: boolean;
+  opModeAgents?: OpModeAgents;
 };
 
 const getSettingsPath = () => join(app.getPath("userData"), "assistant-settings.json");

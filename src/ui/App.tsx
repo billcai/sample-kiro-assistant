@@ -268,16 +268,15 @@ function App() {
 
   return (
     <div className="relative flex h-screen bg-surface">
-      {!showSettings && (
+      {!showSettings && spiritActive && (
         <video
           ref={spiritVideoRef}
           src={kiroVideo}
           muted
           loop
           playsInline
-          className={`pointer-events-none absolute bottom-6 right-10 z-10 w-44 opacity-90 mix-blend-screen rounded-2xl shadow-lg ${
-            spiritActive ? "" : "grayscale opacity-70"
-          }`}
+          className="pointer-events-none fixed bottom-[72px] right-4 z-20 w-10 h-10 opacity-90 mix-blend-screen rounded-full"
+          style={{ marginRight: fileSidebarOpen ? `${fileSidebarWidth}px` : 0 }}
         />
       )}
       <Sidebar
@@ -298,7 +297,7 @@ function App() {
           <span className="text-sm font-medium text-ink-700">{activeSession?.title || "Kiro Assistant"}</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-8 pb-40 pt-6">
+        <div className={`flex-1 overflow-y-auto px-8 pt-6 ${(createdFiles.length + accessedFiles.length) > 0 ? "pb-72" : "pb-40"}`}>
           <div className="mx-auto max-w-3xl">
             {messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-20 text-center">

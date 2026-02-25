@@ -14,6 +14,7 @@ export type RunnerOptions = {
   onEvent: (event: ServerEvent) => void;
   onSessionUpdate?: (updates: Partial<Session>) => void;
   getModel: () => string;
+  getAgent: () => string;
 };
 
 export type RunnerHandle = {
@@ -62,7 +63,8 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
 
   const normalizedCwd = normalizeWorkingDirectory(session.cwd) ?? DEFAULT_CWD;
   const model = options.getModel().trim();
-  const agent = (process.env.KIRO_AGENT ?? "kiro-assistant").trim();
+  const agent = options.getAgent().trim();
+  const isOpMode = agent === "op-orchestrator";
   const interactive = session.interactive === true;
   const args = ["chat", "--trust-all-tools", "--wrap", "never"];
   if (!interactive) {
@@ -90,7 +92,7 @@ export async function runClaude(options: RunnerOptions): Promise<RunnerHandle> {
         content: [
           {
             type: "text",
-            text: `**Model:** ${model || "unknown"}`
+            text: `**Model:** ${model || "unknown"}${isOpMode ? " · **OP Mode** enabled" : ""}`
           }
         ]
       },

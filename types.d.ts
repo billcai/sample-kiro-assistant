@@ -49,6 +49,32 @@ type FileReadResult = {
 }
 
 type McpServersMap = import("./src/shared/mcp").McpServersMap;
+type OpModeAgentConfig = import("./src/shared/op-mode-defaults").OpModeAgentConfig;
+type OpModeAgents = import("./src/shared/op-mode-defaults").OpModeAgents;
+
+type OpModeSettingsResponse = {
+    enabled: boolean;
+    agents: OpModeAgents;
+    defaults: {
+        orchestratorPrompt: string;
+        explorePrompt: string;
+        taskWorkerPrompt: string;
+        orchestratorModel: string;
+        exploreModel: string;
+        taskWorkerModel: string;
+    };
+};
+
+type SetOpModeSettingsPayload = {
+    enabled?: boolean;
+    agents?: Partial<OpModeAgents>;
+};
+
+type SetOpModeSettingsResult = {
+    success: boolean;
+    error?: string;
+    settings?: OpModeSettingsResponse;
+};
 
 type KiroMcpServersResponse = {
     success: boolean;
@@ -137,6 +163,8 @@ type EventPayloadMapping = {
     "get-skills": SkillsResponse;
     "get-model-settings": ModelSettingsResponse;
     "set-default-model": SetDefaultModelResult;
+    "get-op-mode-settings": OpModeSettingsResponse;
+    "set-op-mode-settings": SetOpModeSettingsResult;
 }
 
 interface Window {
@@ -162,6 +190,8 @@ interface Window {
         getSkills: () => Promise<SkillsResponse>;
         getModelSettings: () => Promise<ModelSettingsResponse>;
         setDefaultModel: (payload: SetDefaultModelPayload) => Promise<SetDefaultModelResult>;
+        getOpModeSettings: () => Promise<OpModeSettingsResponse>;
+        setOpModeSettings: (payload: SetOpModeSettingsPayload) => Promise<SetOpModeSettingsResult>;
     }
     playPromptStartCue?: () => void;
 }

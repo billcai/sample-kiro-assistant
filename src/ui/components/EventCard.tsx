@@ -214,6 +214,16 @@ const getToolInfo = (messageContent: Extract<MessageContent, { type: "tool_use" 
       return readString(input.url);
     case "web_search":
       return readString(input.query);
+    case "use_subagent":
+    case "subagent": {
+      const cmd = readString(input.command);
+      if (cmd === "ListAgents") return "Listing available agents";
+      const subs = input.content as Record<string, unknown> | undefined;
+      const arr = Array.isArray(subs?.subagents) ? subs.subagents : [];
+      if (arr.length === 0) return cmd;
+      const names = arr.map((s: Record<string, unknown>) => readString(s.agent_name) || "agent").join(", ");
+      return `${arr.length} subagent${arr.length > 1 ? "s" : ""}: ${names}`;
+    }
     default:
       return null;
   }
@@ -326,6 +336,43 @@ const AssistantBlockCard = ({
   </div>
 );
 
+const SubagentSummary = ({ summary }: { summary: { taskDescription?: string; taskResult?: string; contextSummary?: string } }) => {
+  const [expanded, setExpanded] = useState(false);
+  const title = summary.taskDescription?.slice(0, 120) || "Subagent task";
+  const hasResult = Boolean(summary.taskResult);
+  return (
+    <div className="rounded-lg border border-ink-900/10 bg-surface-secondary overflow-hidden">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-surface-tertiary transition-colors"
+      >
+        <span className={`shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`}>▸</span>
+        <span className="text-ink-700 truncate">{title}{title.length >= 120 ? "…" : ""}</span>
+        {hasResult && <span className="ml-auto shrink-0 text-[10px] text-muted">{expanded ? "collapse" : "expand"}</span>}
+      </button>
+      {expanded && summary.taskResult && (
+        <div className="border-t border-ink-900/10 px-3 py-2 text-sm">
+          <MDContent text={summary.taskResult} />
+        </div>
+      )}
+    </div>
+  );
+};
+
+const parseSubagentOutput = (outputText: string): Array<{ taskDescription?: string; taskResult?: string; contextSummary?: string }> | null => {
+  try {
+    const parsed = JSON.parse(outputText);
+    const obj = typeof parsed === "object" && parsed !== null ? parsed : null;
+    if (!obj) return null;
+    // Handle both {Json: {summaries: [...]}} and {summaries: [...]}
+    const inner = obj.Json ?? obj;
+    if (Array.isArray(inner.summaries) && inner.summaries.length > 0) return inner.summaries;
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 const ToolUseCard = ({
   messageContent,
   showIndicator = false,
@@ -411,33 +458,49 @@ const ToolUseCard = ({
         )}
       </div>
 
-      {hasResult && (
-        <div className="border-t border-ink-900/10 pt-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-ink-900">Output</span>
-            <button
-              onClick={() => setOutputExpanded((prev) => !prev)}
-              className="text-xs font-medium text-accent hover:text-accent-hover transition-colors"
-            >
-              {outputExpanded ? "Hide output" : "Show output"}
-            </button>
-          </div>
-          {!outputExpanded && (
-            <p className="mt-1 text-xs text-muted">
-              Output hidden{outputLines.length ? ` (${outputLines.length} lines)` : ""}.
-            </p>
-          )}
-          {outputExpanded && (
-            <div className={`mt-2 text-sm whitespace-pre-wrap break-words ${isError ? "text-red-500" : "text-ink-700"}`}>
-              {isMarkdownOutput ? (
-                <MDContent text={outputText} />
-              ) : (
-                <pre className="whitespace-pre-wrap break-words text-xs">{outputText}</pre>
-              )}
+      {hasResult && (() => {
+        const isSubagent = isToolUse && (messageContent.name === "use_subagent" || messageContent.name === "subagent");
+        const summaries = isSubagent && !isError ? parseSubagentOutput(outputText) : null;
+
+        if (summaries) {
+          return (
+            <div className="border-t border-ink-900/10 pt-2">
+              <span className="text-xs font-medium text-ink-900">Subagent Results ({summaries.length})</span>
+              <div className="mt-2 space-y-2">
+                {summaries.map((s, i) => <SubagentSummary key={i} summary={s} />)}
+              </div>
             </div>
-          )}
-        </div>
-      )}
+          );
+        }
+
+        return (
+          <div className="border-t border-ink-900/10 pt-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-ink-900">Output</span>
+              <button
+                onClick={() => setOutputExpanded((prev) => !prev)}
+                className="text-xs font-medium text-accent hover:text-accent-hover transition-colors"
+              >
+                {outputExpanded ? "Hide output" : "Show output"}
+              </button>
+            </div>
+            {!outputExpanded && (
+              <p className="mt-1 text-xs text-muted">
+                Output hidden{outputLines.length ? ` (${outputLines.length} lines)` : ""}.
+              </p>
+            )}
+            {outputExpanded && (
+              <div className={`mt-2 text-sm whitespace-pre-wrap break-words ${isError ? "text-red-500" : "text-ink-700"}`}>
+                {isMarkdownOutput ? (
+                  <MDContent text={outputText} />
+                ) : (
+                  <pre className="whitespace-pre-wrap break-words text-xs">{outputText}</pre>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 };

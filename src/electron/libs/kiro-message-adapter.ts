@@ -225,6 +225,7 @@ const readPromptText = (userContent: Record<string, unknown>): string | undefine
 type ToolUseEnvelope = {
   message_id?: string;
   tool_uses?: ToolUseRecord[];
+  content?: unknown;
 };
 
 const readToolUseEnvelope = (assistantContent: Record<string, unknown>): ToolUseEnvelope | undefined => {
@@ -232,7 +233,8 @@ const readToolUseEnvelope = (assistantContent: Record<string, unknown>): ToolUse
   if (!isRecord(rawToolUse)) return undefined;
   return {
     message_id: typeof rawToolUse.message_id === "string" ? rawToolUse.message_id : undefined,
-    tool_uses: Array.isArray(rawToolUse.tool_uses) ? (rawToolUse.tool_uses as ToolUseRecord[]) : undefined
+    tool_uses: Array.isArray(rawToolUse.tool_uses) ? (rawToolUse.tool_uses as ToolUseRecord[]) : undefined,
+    content: rawToolUse.content
   };
 };
 
@@ -279,8 +281,10 @@ export const convertKiroHistoryEntries = (
 
     const toolUse = readToolUseEnvelope(assistantContent);
     if (toolUse?.tool_uses?.length) {
-      const content = convertToolUses(toolUse.tool_uses);
-      if (content) {
+      const toolBlocks = convertToolUses(toolUse.tool_uses);
+      if (toolBlocks) {
+        const textBlocks = toolUse.content ? normalizeTextBlocks(toolUse.content).map((t) => ({ type: "text" as const, text: t.text })) : [];
+        const content = [...textBlocks, ...toolBlocks];
         const assistantMessage = buildAssistantMessage({
           conversationId,
           messageId: toolUse.message_id,

@@ -33,6 +33,13 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
   const [modelError, setModelError] = useState<string | null>(null);
   const [updatingModel, setUpdatingModel] = useState(false);
 
+  // OP Mode state
+  const [opModeSettings, setOpModeSettings] = useState<OpModeSettingsResponse | null>(null);
+  const [opModeLoading, setOpModeLoading] = useState(false);
+  const [opModeError, setOpModeError] = useState<string | null>(null);
+  const [opModeExpanded, setOpModeExpanded] = useState(false);
+  const [opModeDirty, setOpModeDirty] = useState<Partial<SetOpModeSettingsPayload["agents"]>>({});
+
   const serverEntries = useMemo(
     () => Object.entries(servers).sort(([a], [b]) => a.localeCompare(b)),
     [servers]
@@ -127,17 +134,59 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     []
   );
 
+  const fetchOpModeSettings = useCallback(async () => {
+    setOpModeLoading(true);
+    setOpModeError(null);
+    try {
+      const response = await window.electron.getOpModeSettings();
+      setOpModeSettings(response);
+      setOpModeDirty({});
+    } catch (error) {
+      setOpModeError(error instanceof Error ? error.message : "Unable to load OP Mode settings");
+    } finally {
+      setOpModeLoading(false);
+    }
+  }, []);
+
+  const handleOpModeToggle = useCallback(async () => {
+    if (!opModeSettings) return;
+    setOpModeError(null);
+    try {
+      const result = await window.electron.setOpModeSettings({ enabled: !opModeSettings.enabled });
+      if (result.success && result.settings) setOpModeSettings(result.settings);
+      else throw new Error(result.error || "Failed to toggle OP Mode");
+    } catch (error) {
+      setOpModeError(error instanceof Error ? error.message : "Unable to toggle OP Mode");
+    }
+  }, [opModeSettings]);
+
+  const handleOpModeSave = useCallback(async () => {
+    if (!opModeDirty || !Object.keys(opModeDirty).length) return;
+    setOpModeError(null);
+    try {
+      const result = await window.electron.setOpModeSettings({ agents: opModeDirty as SetOpModeSettingsPayload["agents"] });
+      if (result.success && result.settings) {
+        setOpModeSettings(result.settings);
+        setOpModeDirty({});
+      } else throw new Error(result.error || "Failed to save OP Mode settings");
+    } catch (error) {
+      setOpModeError(error instanceof Error ? error.message : "Unable to save OP Mode settings");
+    }
+  }, [opModeDirty]);
+
   useEffect(() => {
     if (!open) {
       setServerError(null);
       setSkillsError(null);
       setModelError(null);
+      setOpModeError(null);
       return;
     }
     fetchServers();
     fetchSkills();
     fetchModelSettings();
-  }, [open, fetchServers, fetchSkills, fetchModelSettings]);
+    fetchOpModeSettings();
+  }, [open, fetchServers, fetchSkills, fetchModelSettings, fetchOpModeSettings]);
 
   const handleToggleServer = useCallback(
     async (name: string, disabled: boolean) => {
@@ -168,8 +217,8 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
     <Dialog.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40 backdrop-blur-sm" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-[min(1050px,90vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-3xl bg-surface p-6 shadow-2xl">
-          <div className="flex items-start justify-between gap-4">
+        <Dialog.Content className="fixed left-1/2 top-1/2 flex max-h-[90vh] w-[min(1050px,90vw)] -translate-x-1/2 -translate-y-1/2 flex-col rounded-3xl bg-surface shadow-2xl">
+          <div className="flex items-start justify-between gap-4 shrink-0 px-6 pt-6 pb-2">
             <div>
               <Dialog.Title className="text-lg font-semibold text-ink-900">Settings</Dialog.Title>
               <Dialog.Description className="text-sm text-muted">
@@ -189,6 +238,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             </button>
           </div>
 
+          <div className="flex-1 overflow-y-auto px-6 pb-6 space-y-4">
           {serverError && (
             <div className="rounded-xl border border-error/20 bg-error/5 px-3 py-2 text-sm text-error">{serverError}</div>
           )}
@@ -262,6 +312,111 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
             </div>
           </section>
 
+          {/* OP Mode */}
+          <section className="rounded-2xl border border-ink-900/10 bg-surface-secondary/70 p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-ink-900">OP Mode</h3>
+                <p className="text-xs text-muted">
+                  {opModeSettings?.enabled
+                    ? "Orchestrator agent with explore → plan → implement → verify workflow"
+                    : "Standard single-agent mode"}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleOpModeToggle}
+                disabled={opModeLoading || !opModeSettings}
+                className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${opModeSettings?.enabled ? "bg-accent" : "bg-ink-200"}`}
+              >
+                <span
+                  className={`inline-block h-5 w-5 transform rounded-full bg-surface transition-transform ${opModeSettings?.enabled ? "translate-x-5" : "translate-x-1"}`}
+                />
+                <span className="sr-only">Toggle OP Mode</span>
+              </button>
+            </div>
+            {opModeError && <p className="mt-2 text-xs text-red-500">{opModeError}</p>}
+
+            {opModeSettings?.enabled && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setOpModeExpanded(!opModeExpanded)}
+                  className="mt-3 text-xs font-medium text-ink-500 hover:text-ink-900"
+                >
+                  {opModeExpanded ? "▾ Hide agent config" : "▸ Customize agent config"}
+                </button>
+
+                {opModeExpanded && (
+                  <div className="mt-3 space-y-4">
+                    {(["orchestrator", "explore", "taskWorker"] as const).map((role) => {
+                      const label = role === "taskWorker" ? "Task Worker" : role.charAt(0).toUpperCase() + role.slice(1);
+                      const defaultPromptKey = `${role === "taskWorker" ? "taskWorker" : role}Prompt` as keyof OpModeSettingsResponse["defaults"];
+                      const defaultModelKey = `${role === "taskWorker" ? "taskWorker" : role}Model` as keyof OpModeSettingsResponse["defaults"];
+                      const currentPrompt = (opModeDirty as Record<string, Record<string, string>>)?.[role]?.prompt ?? opModeSettings.agents[role]?.prompt ?? "";
+                      const currentModel = (opModeDirty as Record<string, Record<string, string>>)?.[role]?.model ?? opModeSettings.agents[role]?.model ?? opModeSettings.defaults[defaultModelKey];
+
+                      return (
+                        <div key={role} className="rounded-xl border border-ink-900/10 p-3 space-y-2">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-semibold text-ink-900">{label}</span>
+                            <button
+                              type="button"
+                              className="text-[11px] text-ink-500 hover:text-ink-900"
+                              onClick={() => setOpModeDirty((prev) => ({
+                                ...prev,
+                                [role]: { prompt: undefined, model: undefined },
+                              }))}
+                            >
+                              Reset to default
+                            </button>
+                          </div>
+                          <label className="block text-[11px] text-muted">
+                            Model
+                            <select
+                              className="mt-1 block w-full rounded-lg border border-ink-900/10 bg-surface px-2 py-1 text-xs"
+                              value={currentModel}
+                              onChange={(e) => setOpModeDirty((prev) => ({
+                                ...prev,
+                                [role]: { ...(prev as Record<string, Record<string, string>>)?.[role], model: e.target.value },
+                              }))}
+                            >
+                              {modelSettings?.models?.map((m: ModelInfo) => (
+                                <option key={m.id} value={m.id}>{m.label}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <label className="block text-[11px] text-muted">
+                            System Prompt
+                            <textarea
+                              className="mt-1 block w-full rounded-lg border border-ink-900/10 bg-surface px-2 py-1 text-xs font-mono"
+                              rows={4}
+                              placeholder={opModeSettings.defaults[defaultPromptKey].slice(0, 200) + "…"}
+                              value={currentPrompt}
+                              onChange={(e) => setOpModeDirty((prev) => ({
+                                ...prev,
+                                [role]: { ...(prev as Record<string, Record<string, string>>)?.[role], prompt: e.target.value },
+                              }))}
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                    {Object.keys(opModeDirty).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleOpModeSave}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent/90"
+                      >
+                        Save Agent Config
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+
           <div className="grid gap-6 md:grid-cols-2">
           <section className="rounded-2xl border border-ink-900/10 bg-surface-secondary/70 p-4">
             <div className="flex items-center justify-between">
@@ -331,6 +486,7 @@ export function SettingsModal({ open, onClose }: SettingsModalProps) {
               )}
             </div>
           </section>
+        </div>
         </div>
         </Dialog.Content>
       </Dialog.Portal>
