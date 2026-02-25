@@ -27,13 +27,8 @@ const sendStreamMessage = (
   message: StreamMessage,
   onEvent: RunnerOptions["onEvent"]
 ) => {
-  if (message.type === "user_prompt") {
-    onEvent({
-      type: "stream.user_prompt",
-      payload: { sessionId, prompt: message.prompt }
-    });
-    return;
-  }
+  // Skip user_prompt - already emitted by ipc-handlers when user sends prompt
+  if (message.type === "user_prompt") return;
   onEvent({
     type: "stream.message",
     payload: { sessionId, message }

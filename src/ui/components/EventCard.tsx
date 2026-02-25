@@ -212,9 +212,27 @@ const getToolInfo = (messageContent: Extract<MessageContent, { type: "tool_use" 
       return readString(input.description);
     case "WebFetch":
       return readString(input.url);
+    case "web_search":
+      return readString(input.query);
     default:
       return null;
   }
+};
+
+// Build a lookup map from tool_use_id to tool_result content
+const buildToolResultMap = (messages: StreamMessage[]): Map<string, ToolResultContent> => {
+  const map = new Map<string, ToolResultContent>();
+  for (const msg of messages) {
+    if (msg.type !== "user") continue;
+    const userMsg = msg as AgentUserMessage;
+    if (!Array.isArray(userMsg.message?.content)) continue;
+    for (const content of userMsg.message.content) {
+      if (isRecord(content) && content.type === "tool_result" && typeof content.tool_use_id === "string") {
+        map.set(content.tool_use_id, content as ToolResultContent);
+      }
+    }
+  }
+  return map;
 };
 
 const ToolResult = ({ messageContent }: { messageContent: ToolResultContent }) => {
@@ -310,24 +328,62 @@ const AssistantBlockCard = ({
 
 const ToolUseCard = ({
   messageContent,
-  showIndicator = false
+  showIndicator = false,
+  toolResult
 }: {
   messageContent: MessageContent;
   showIndicator?: boolean;
+  toolResult?: ToolResultContent;
 }) => {
+  const [inputsExpanded, setInputsExpanded] = useState(false);
+  const [outputExpanded, setOutputExpanded] = useState(false);
+  
   const isToolUse = messageContent.type === "tool_use";
   const toolUseId = isToolUse ? messageContent.id : undefined;
   const toolStatus = useToolStatus(toolUseId);
-  const statusVariant = toolStatus === "error" ? "error" : "success";
   const isPending = !toolStatus || toolStatus === "pending";
-  const shouldShowDot = toolStatus === "success" || toolStatus === "error" || showIndicator;
+  
+  const hasResult = toolResult && toolResult.type === "tool_result";
+  const isError = hasResult && toolResult.is_error;
+  const statusVariant = isError ? "error" : "success";
+  const shouldShowDot = hasResult || toolStatus === "success" || toolStatus === "error" || showIndicator;
 
   useEffect(() => {
     if (!toolUseId || toolStatusMap.has(toolUseId)) return;
     setToolStatus(toolUseId, "pending");
   }, [toolUseId]);
 
+  useEffect(() => {
+    if (!hasResult || !toolUseId) return;
+    setToolStatus(toolUseId, isError ? "error" : "success");
+  }, [hasResult, toolUseId, isError]);
+
   if (!isToolUse) return null;
+
+  const inputJson = isRecord(messageContent.input) 
+    ? JSON.stringify(messageContent.input, null, 2) 
+    : "{}";
+
+  let outputText = "";
+  let outputLines: string[] = [];
+  let isMarkdownOutput = false;
+  if (hasResult) {
+    if (toolResult.is_error) {
+      outputText = extractTagContent(String(toolResult.content), "tool_use_error") ?? String(toolResult.content);
+    } else {
+      try {
+        outputText = Array.isArray(toolResult.content)
+          ? readToolResultArrayOutput(toolResult.content)
+          : String(toolResult.content);
+      } catch {
+        outputText = JSON.stringify(toolResult, null, 2);
+      }
+    }
+    const formattedJson = tryFormatJsonContent(outputText);
+    outputText = formattedJson ?? outputText;
+    outputLines = outputText ? outputText.split("\n") : [];
+    isMarkdownOutput = !formattedJson && isMarkdown(outputText);
+  }
 
   return (
     <div className="flex flex-col gap-2 rounded-[1rem] bg-surface-tertiary px-3 py-2 mt-4 overflow-hidden">
@@ -340,6 +396,48 @@ const ToolUseCard = ({
           <span className="text-sm text-muted truncate">{getToolInfo(messageContent)}</span>
         </div>
       </div>
+
+      <div className="border-t border-ink-900/10 pt-2">
+        <button
+          onClick={() => setInputsExpanded((prev) => !prev)}
+          className="text-xs font-medium text-accent hover:text-accent-hover transition-colors"
+        >
+          {inputsExpanded ? "Hide inputs" : "Show inputs"}
+        </button>
+        {inputsExpanded && (
+          <pre className="mt-2 text-xs text-ink-700 whitespace-pre-wrap break-words bg-surface-secondary rounded-lg p-2">
+            {inputJson}
+          </pre>
+        )}
+      </div>
+
+      {hasResult && (
+        <div className="border-t border-ink-900/10 pt-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-ink-900">Output</span>
+            <button
+              onClick={() => setOutputExpanded((prev) => !prev)}
+              className="text-xs font-medium text-accent hover:text-accent-hover transition-colors"
+            >
+              {outputExpanded ? "Hide output" : "Show output"}
+            </button>
+          </div>
+          {!outputExpanded && (
+            <p className="mt-1 text-xs text-muted">
+              Output hidden{outputLines.length ? ` (${outputLines.length} lines)` : ""}.
+            </p>
+          )}
+          {outputExpanded && (
+            <div className={`mt-2 text-sm whitespace-pre-wrap break-words ${isError ? "text-red-500" : "text-ink-700"}`}>
+              {isMarkdownOutput ? (
+                <MDContent text={outputText} />
+              ) : (
+                <pre className="whitespace-pre-wrap break-words text-xs">{outputText}</pre>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -453,15 +551,18 @@ export function MessageCard({
   isLast = false,
   isRunning = false,
   permissionRequest,
-  onPermissionResult
+  onPermissionResult,
+  allMessages = []
 }: {
   message: StreamMessage;
   isLast?: boolean;
   isRunning?: boolean;
   permissionRequest?: PermissionRequest;
   onPermissionResult?: (toolUseId: string, result: AgentPermissionResult) => void;
+  allMessages?: StreamMessage[];
 }) {
   const showIndicator = isLast && isRunning;
+  const toolResultMap = buildToolResultMap(allMessages);
 
   if (message.type === "user_prompt") {
     return <UserMessageCard message={message} showIndicator={showIndicator} />;
@@ -510,8 +611,10 @@ export function MessageCard({
           />
           {contents
             .filter((content) => content.type === "tool_use")
-            .map((content, idx) =>
-              content.name === "AskUserQuestion" ? (
+            .map((content, idx) => {
+              const toolUseContent = content as Extract<MessageContent, { type: "tool_use" }>;
+              const toolResult = toolResultMap.get(toolUseContent.id);
+              return content.name === "AskUserQuestion" ? (
                 <AskUserQuestionCard
                   key={`tool-${idx}`}
                   messageContent={content}
@@ -519,9 +622,9 @@ export function MessageCard({
                   onPermissionResult={onPermissionResult}
                 />
               ) : (
-                <ToolUseCard key={`tool-${idx}`} messageContent={content} showIndicator={false} />
-              )
-            )}
+                <ToolUseCard key={`tool-${idx}`} messageContent={content} showIndicator={false} toolResult={toolResult} />
+              );
+            })}
         </>
       );
     }
@@ -567,11 +670,13 @@ export function MessageCard({
                 />
               );
             }
+            const toolResult = toolResultMap.get(content.id);
             return (
               <ToolUseCard
                 key={idx}
                 messageContent={content}
                 showIndicator={isLastContent && showIndicator}
+                toolResult={toolResult}
               />
             );
           }
@@ -582,18 +687,9 @@ export function MessageCard({
     );
   }
 
+  // Skip rendering standalone tool results - they're now shown inline in ToolUseCard
   if (sdkMessage.type === "user") {
-    const contents = sdkMessage.message.content;
-    return (
-      <>
-        {contents.map((content: ToolResultContent, idx: number) => {
-          if (content.type === "tool_result") {
-            return <ToolResult key={idx} messageContent={content} />;
-          }
-          return null;
-        })}
-      </>
-    );
+    return null;
   }
 
   return null;
